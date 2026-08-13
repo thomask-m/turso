@@ -53,3 +53,180 @@ test left-join-where-or-terms-filter-null-extended-rows {
 expect {
     1
 }
+
+# Issue #8227: NULL NOT IN an empty subquery is TRUE, so the planner cannot
+# treat NOT IN (SELECT ...) as null-rejecting. Doing so turned the LEFT JOIN
+# into an INNER JOIN and dropped the unmatched pa.id = 2 row.
+
+setup not_in_subquery {
+    CREATE TABLE pa(id INTEGER);
+    CREATE TABLE pb(aid INTEGER, x INTEGER);
+    CREATE TABLE z(a INTEGER);
+    INSERT INTO pa VALUES (1), (2);
+    INSERT INTO pb VALUES (1, 10);
+}
+
+@setup not_in_subquery
+test left-join-survives-not-in-empty-subquery {
+    SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
+    WHERE pb.x NOT IN (SELECT a FROM z)
+    ORDER BY pa.id;
+}
+expect {
+    1
+    2
+}
+
+@setup not_in_subquery
+test left-join-survives-not-in-runtime-empty-subquery {
+    INSERT INTO z VALUES (10);
+    SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
+    WHERE pb.x NOT IN (SELECT a FROM z WHERE a > 100)
+    ORDER BY pa.id;
+}
+expect {
+    1
+    2
+}
+
+@setup not_in_subquery
+test left-join-survives-not-in-subquery-on-join-key {
+    SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
+    WHERE pb.aid NOT IN (SELECT a FROM z)
+    ORDER BY pa.id;
+}
+expect {
+    1
+    2
+}
+
+@setup not_in_subquery
+test left-join-not-in-nonempty-subquery-drops-null-extended-row {
+    INSERT INTO z VALUES (10);
+    SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
+    WHERE pb.x NOT IN (SELECT a FROM z)
+    ORDER BY pa.id;
+}
+expect {
+    1
+}
+
+@setup not_in_subquery
+test left-join-in-empty-subquery-rejects-null-extended-row {
+    SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
+    WHERE pb.x IN (SELECT a FROM z)
+    ORDER BY pa.id;
+}
+expect {
+}
+
+# Issue #8236: functions that map NULL to a value are not null-rejecting.
+# typeof/quote/printf/format/concat/json_quote are TRUE on the unmatched row.
+
+setup null_to_value_functions {
+    CREATE TABLE l(a);
+    CREATE TABLE r(a, b);
+    INSERT INTO l VALUES (1);
+    INSERT INTO r VALUES (2, 7);
+}
+
+@setup null_to_value_functions
+test left-join-survives-typeof-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE typeof(r.b) = 'null';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-quote-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE quote(r.b) = 'NULL';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-printf-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE printf('%s', r.b) = '';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-format-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE format('[%s]', r.b) = '[]';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-concat-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE concat(r.b, 'x') = 'x';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-json-quote-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE json_quote(r.b) = 'null';
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-instr-quote-null {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE instr(quote(r.b), 'NULL') = 1;
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-survives-is-not-null-compared-to-zero {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE (r.b IS NOT NULL) = 0;
+}
+expect {
+    1|
+}
+
+@setup null_to_value_functions
+test left-join-equality-on-right-column-is-null-rejecting {
+    SELECT l.a, r.b FROM l LEFT JOIN r ON l.a = r.a WHERE r.b = 7;
+}
+expect {
+}
+
+# Issue #8230: a WHERE term that reaches the right table only through a
+# correlated subquery is not null-rejecting. count(*) is 0 when the correlated
+# column is NULL, so 5 > 0 holds on the unmatched row.
+
+setup correlated_subquery_on_right {
+    CREATE TABLE o(a, c);
+    CREATE TABLE p(a);
+    CREATE TABLE i(b);
+    INSERT INTO o VALUES (1, 5);
+    INSERT INTO p VALUES (2);
+}
+
+@setup correlated_subquery_on_right
+test left-join-survives-correlated-count-subquery {
+    SELECT o.a FROM o LEFT JOIN p ON o.a = p.a
+    WHERE o.c > (SELECT count(*) FROM i WHERE i.b = p.a);
+}
+expect {
+    1
+}
+
+@setup correlated_subquery_on_right
+test left-join-survives-correlated-sum-subquery {
+    SELECT o.a FROM o LEFT JOIN p ON o.a = p.a
+    WHERE o.c > (SELECT coalesce(sum(i.b), 0) FROM i WHERE i.b = p.a);
+}
+expect {
+    1
+}
