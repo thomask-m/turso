@@ -102,7 +102,7 @@ expect {
 
 @setup not_in_subquery
 test left-join-not-in-nonempty-subquery-drops-null-extended-row {
-    INSERT INTO z VALUES (10);
+    INSERT INTO z VALUES (99);
     SELECT pa.id FROM pa LEFT JOIN pb ON pa.id = pb.aid
     WHERE pb.x NOT IN (SELECT a FROM z)
     ORDER BY pa.id;
