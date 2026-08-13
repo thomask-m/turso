@@ -141,3 +141,28 @@ No-one knows what the hell a bootstrap-safe statement is. Everyone knows what "a
 ## CI Note
 
 Running in GitHub Action? Max-turns limit in `.github/workflows/claude.yml`. OK to push WIP and continue in another action. Stay focused, avoid rabbit holes.
+
+## Cursor Cloud specific instructions
+
+The VM snapshot already has everything needed to build, lint, test, and run: the
+pinned Rust toolchain (1.88, auto-selected via `rust-toolchain.toml`), `tclsh`,
+`sqlite3` + `libsqlite3-dev`, `python3.12-dev`, and `uv` (on `PATH` at
+`~/.local/bin`). No dependency install is needed to start working. Standard
+build/lint/test/run commands live in **Quick Reference** above — use those.
+
+Non-obvious caveats:
+
+- A full workspace `cargo build` also compiles `bindings/python` (`py-turso`),
+  which links against the system `libpython3.12`. That is why `python3.12-dev`
+  must be present — without it the build fails at the final link step (`cannot
+  find -lpython3.12`), not at compile time.
+- `cargo build`, `cargo test` (whole workspace), and especially
+  `cargo clippy --workspace --all-features --all-targets` compile 40+ crates and
+  take several minutes cold. When iterating, scope to a crate, e.g.
+  `cargo test -p turso_core`, to keep the loop fast.
+- `.cargo/config.toml` sets `--cfg=tokio_unstable` for the whole workspace, so
+  that flag showing up in build output is expected.
+- The compat/TCL suite (`make test`, `make test-single TEST=foo.test`) drives the
+  debug `tursodb` via `SQLITE_EXEC=scripts/limbo-sqlite3`, so build first. The
+  Python `make test-*` targets run through `uv`, which manages its own Python
+  3.13 interpreter independent of the system `python3` (3.12).
