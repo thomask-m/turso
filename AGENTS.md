@@ -166,3 +166,25 @@ Non-obvious caveats:
   debug `tursodb` via `SQLITE_EXEC=scripts/limbo-sqlite3`, so build first. The
   Python `make test-*` targets run through `uv`, which manages its own Python
   3.13 interpreter independent of the system `python3` (3.12).
+
+### SQL conformance (`.sqltest`) compatibility tests
+
+The preferred harness for SQL semantics coverage lives in `sqlite/conformance`
+(corpora: `sqlite-sqltests/` and `turso-sqltests/`; runner crate:
+`testing/sqltest`). Non-obvious points:
+
+- Run the whole corpora with the native Rust backend (no external `sqlite3`
+  binary or `tursodb` build needed — it uses the in-process `turso` bindings):
+  `make -C sqlite/conformance run-rust ARGS='--snapshot-filter __never__'`.
+  `--snapshot-filter __never__` skips snapshot-based cases; drop it (or use
+  `CI=1 make -C sqlite/conformance run-rust`) only when snapshot tests are
+  required. Verified green here: 12549 + 1560 passed.
+- Other backends are heavier: `run-cli`/`run` build and spawn the debug
+  `tursodb`; `run-js` needs the Node bindings built first (`yarn`). Prefer
+  `run-rust` for fast iteration.
+- Scope during development: `make -C sqlite/conformance run-one FILE=sqlite-sqltests/<dir>/<name>.sqltest`
+  or `run-filter FILTER=<substr>`; `make -C sqlite/conformance check` just
+  validates corpus syntax.
+- `make -C sqlite/conformance test-sqlite` cross-checks the same corpora against
+  a real `sqlite3`; it runs `scripts/install-sqlite3.sh` to fetch/build the
+  reference binary into `.sqlite3/`.
